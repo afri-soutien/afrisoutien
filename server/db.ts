@@ -1,29 +1,26 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
+// server/db.ts  (NOUVELLE VERSION)
+
+// 1) Client Postgres “postgres-js”
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "@shared/schema";
 
-// Configuration WebSocket pour Neon avec gestion d'erreurs
-neonConfig.webSocketConstructor = ws;
-neonConfig.fetchConnectionCache = true;
-
+// 2) Vérification de l’URL
 if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
+  throw new Error("DATABASE_URL is not set (Supabase connection string).");
 }
 
-// Configuration du pool avec paramètres optimisés
-export const pool = new Pool({ 
-  connectionString: process.env.DATABASE_URL,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+/**
+ * Supabase → string du type :
+ *   postgres://<user>:<password>@<host>:5432/postgres?sslmode=require
+ * Le paramètre `ssl: 'require'` est indispensable.
+ */
+export const queryClient = postgres(process.env.DATABASE_URL, {
+  max: 20,          // connexions simultanées
+  idle_timeout: 30, // secondes
+  connect_timeout: 10,
+  ssl: "require",
 });
 
-// Gestion des erreurs de connexion
-pool.on('error', (err) => {
-  console.error('Database pool error:', err);
-});
-
-export const db = drizzle({ client: pool, schema });
+// 3) Instanciation Drizzle
+export const db = drizzle(queryClient, { schema });
