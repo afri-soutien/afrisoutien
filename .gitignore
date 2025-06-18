@@ -1,0 +1,18 @@
+# Dépendances
+node_modules/
+# Builds et caches
+dist/
+build/
+.next/
+out/
+.turbo/
+.cache/
+coverage/
+# Secrets
+.env
+.env.*
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
