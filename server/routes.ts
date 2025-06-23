@@ -195,8 +195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Trouver l'utilisateur avec ce token
-      const users = await storage.getAllUsers();
-      const user = users.find(u => u.emailVerificationToken === token);
+      const user = await storage.getUserByEmailVerificationToken(String(token));
       
       if (!user) {
         return res.status(400).json({ message: 'Invalid or expired verification token' });
@@ -369,8 +368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Trouver l'utilisateur avec ce token
-      const users = await storage.getAllUsers();
-      const user = users.find(u => u.passwordResetToken === token);
+      const user = await storage.getUserByPasswordResetToken(token);
       
       if (!user) {
         return res.status(400).json({ message: 'Invalid or expired reset token' });
