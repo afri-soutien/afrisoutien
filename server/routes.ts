@@ -214,41 +214,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Route pour renvoyer l'email de vérification
-  app.post('/api/auth/resend-verification', async (req, res) => {
-    try {
-      const { email } = req.body;
-      
-      if (!email) {
-        return res.status(400).json({ message: 'Email is required' });
-      }
-
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-
-      if (user.isVerified) {
-        return res.status(400).json({ message: 'User is already verified' });
-      }
-
-      // Generate new verification token
-      const emailVerificationToken = nanoid(32);
-      await storage.updateUser(user.id, { emailVerificationToken });
-
-      // Send verification email
-      try {
-        await notificationService.sendWelcomeAndVerificationEmail(user.email, emailVerificationToken);
-        res.json({ message: 'Verification email sent successfully' });
-      } catch (emailError) {
-        console.error('Error sending verification email:', emailError);
-        res.status(500).json({ message: 'Failed to send verification email' });
-      }
-    } catch (error) {
-      console.error('Resend verification error:', error);
-      res.status(500).json({ message: 'Internal server error' });
-    }
-  });
 
   // Route de refresh token
   app.post('/api/auth/refresh', async (req, res) => {
@@ -424,48 +389,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/auth/forgot-password', async (req, res) => {
-    try {
-      const { email } = req.body;
-      
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-
-      const resetToken = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
-      
-      await storage.updateUser(user.id, { passwordResetToken: resetToken });
-
-      res.json({ message: 'Password reset email sent' });
-    } catch (error) {
-      res.status(500).json({ message: 'Internal server error' });
-    }
-  });
-
-  app.post('/api/auth/reset-password', async (req, res) => {
-    try {
-      const { token, password } = req.body;
-      
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
-      const user = await storage.getUser(decoded.userId);
-      
-      if (!user || user.passwordResetToken !== token) {
-        return res.status(400).json({ message: 'Invalid reset token' });
-      }
-
-      const passwordHash = await bcrypt.hash(password, 10);
-      
-      await storage.updateUser(user.id, { 
-        passwordHash, 
-        passwordResetToken: null 
-      });
-
-      res.json({ message: 'Password reset successfully' });
-    } catch (error) {
-      res.status(400).json({ message: 'Invalid or expired token' });
-    }
-  });
 
   app.get('/api/auth/me', authenticateToken, async (req, res) => {
     res.json({ user: req.user });
