@@ -6,7 +6,8 @@ import { storage } from "./storage";
 import { 
   insertUserSchema, insertCampaignSchema, insertFinancialDonationSchema,
   insertMaterialDonationSchema, insertBoutiqueOrderSchema,
-  type User 
+  insertContactMessageSchema,
+  type User
 } from "@shared/schema";
 import { z } from "zod";
 import { notificationService } from "./notification-service";
@@ -194,8 +195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Trouver l'utilisateur avec ce token
-      const users = await storage.getAllUsers();
-      const user = users.find(u => u.emailVerificationToken === token);
+      const user = await storage.getUserByEmailVerificationToken(String(token));
       
       if (!user) {
         return res.status(400).json({ message: 'Invalid or expired verification token' });
@@ -214,41 +214,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Route pour renvoyer l'email de vérification
-  app.post('/api/auth/resend-verification', async (req, res) => {
-    try {
-      const { email } = req.body;
-      
-      if (!email) {
-        return res.status(400).json({ message: 'Email is required' });
-      }
-
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-
-      if (user.isVerified) {
-        return res.status(400).json({ message: 'User is already verified' });
-      }
-
-      // Generate new verification token
-      const emailVerificationToken = nanoid(32);
-      await storage.updateUser(user.id, { emailVerificationToken });
-
-      // Send verification email
-      try {
-        await notificationService.sendWelcomeAndVerificationEmail(user.email, emailVerificationToken);
-        res.json({ message: 'Verification email sent successfully' });
-      } catch (emailError) {
-        console.error('Error sending verification email:', emailError);
-        res.status(500).json({ message: 'Failed to send verification email' });
-      }
-    } catch (error) {
-      console.error('Resend verification error:', error);
-      res.status(500).json({ message: 'Internal server error' });
-    }
-  });
 
   // Route de refresh token
   app.post('/api/auth/refresh', async (req, res) => {
@@ -403,8 +368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Trouver l'utilisateur avec ce token
-      const users = await storage.getAllUsers();
-      const user = users.find(u => u.passwordResetToken === token);
+      const user = await storage.getUserByPasswordResetToken(token);
       
       if (!user) {
         return res.status(400).json({ message: 'Invalid or expired reset token' });
@@ -424,48 +388,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/auth/forgot-password', async (req, res) => {
-    try {
-      const { email } = req.body;
-      
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-
-      const resetToken = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
-      
-      await storage.updateUser(user.id, { passwordResetToken: resetToken });
-
-      res.json({ message: 'Password reset email sent' });
-    } catch (error) {
-      res.status(500).json({ message: 'Internal server error' });
-    }
-  });
-
-  app.post('/api/auth/reset-password', async (req, res) => {
-    try {
-      const { token, password } = req.body;
-      
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
-      const user = await storage.getUser(decoded.userId);
-      
-      if (!user || user.passwordResetToken !== token) {
-        return res.status(400).json({ message: 'Invalid reset token' });
-      }
-
-      const passwordHash = await bcrypt.hash(password, 10);
-      
-      await storage.updateUser(user.id, { 
-        passwordHash, 
-        passwordResetToken: null 
-      });
-
-      res.json({ message: 'Password reset successfully' });
-    } catch (error) {
-      res.status(400).json({ message: 'Invalid or expired token' });
-    }
-  });
 
   app.get('/api/auth/me', authenticateToken, async (req, res) => {
     res.json({ user: req.user });
@@ -739,26 +661,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Contact form route - sends email to contact@afrisoutien.com
+  // Contact form route - store message then send email
   app.post('/api/contact', async (req, res) => {
     try {
       const { name, email, subject, message } = req.body;
-      
+
       if (!name || !email || !subject || !message) {
         return res.status(400).json({ message: 'Tous les champs sont requis' });
       }
 
-      // Send email to contact@afrisoutien.com
-      const contactDetails = {
+      const contactDetails = insertContactMessageSchema.parse({
         senderName: name,
         senderEmail: email,
-        subject: subject,
-        message: message
-      };
-      
+        subject,
+        message,
+      });
+
+      await storage.createContactMessage(contactDetails);
+
       // Email 1: Envoyer la demande au service client
       await notificationService.sendContactFormEmail(contactDetails);
-      
+
       // Email 2: Envoyer l'accusé de réception à l'utilisateur
       try {
         await notificationService.sendContactAcknowledgmentEmail(contactDetails);
@@ -766,14 +689,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('Erreur accusé de réception:', ackError);
         // Ne pas bloquer si l'accusé de réception échoue
       }
-      
-      res.json({ 
-        success: true, 
-        message: 'Votre message a été envoyé avec succès. Nous vous répondrons dans les plus brefs délais.' 
+
+      res.json({
+        success: true,
+        message: 'Votre message a été envoyé avec succès. Nous vous répondrons dans les plus brefs délais.'
       });
     } catch (error) {
       console.error('Erreur envoi formulaire contact:', error);
-      res.status(500).json({ success: false, message: 'Erreur lors de l\'envoi du message' });
+      res.status(500).json({ success: false, message: "Erreur lors de l'envoi du message" });
     }
   });
 
@@ -1470,15 +1393,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Public contact form endpoint
-  app.post("/api/contact", async (req, res) => {
-    try {
-      const message = await storage.createContactMessage(req.body);
-      res.status(201).json(message);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to send message" });
-    }
-  });
 
   const httpServer = createServer(app);
   return httpServer;
