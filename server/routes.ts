@@ -6,7 +6,8 @@ import { storage } from "./storage";
 import { 
   insertUserSchema, insertCampaignSchema, insertFinancialDonationSchema,
   insertMaterialDonationSchema, insertBoutiqueOrderSchema,
-  type User 
+  insertContactMessageSchema,
+  type User
 } from "@shared/schema";
 import { z } from "zod";
 import { notificationService } from "./notification-service";
@@ -662,26 +663,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Contact form route - sends email to contact@afrisoutien.com
+  // Contact form route - store message then send email
   app.post('/api/contact', async (req, res) => {
     try {
       const { name, email, subject, message } = req.body;
-      
+
       if (!name || !email || !subject || !message) {
         return res.status(400).json({ message: 'Tous les champs sont requis' });
       }
 
-      // Send email to contact@afrisoutien.com
-      const contactDetails = {
+      const contactDetails = insertContactMessageSchema.parse({
         senderName: name,
         senderEmail: email,
-        subject: subject,
-        message: message
-      };
-      
+        subject,
+        message,
+      });
+
+      await storage.createContactMessage(contactDetails);
+
       // Email 1: Envoyer la demande au service client
       await notificationService.sendContactFormEmail(contactDetails);
-      
+
       // Email 2: Envoyer l'accusé de réception à l'utilisateur
       try {
         await notificationService.sendContactAcknowledgmentEmail(contactDetails);
@@ -689,14 +691,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('Erreur accusé de réception:', ackError);
         // Ne pas bloquer si l'accusé de réception échoue
       }
-      
-      res.json({ 
-        success: true, 
-        message: 'Votre message a été envoyé avec succès. Nous vous répondrons dans les plus brefs délais.' 
+
+      res.json({
+        success: true,
+        message: 'Votre message a été envoyé avec succès. Nous vous répondrons dans les plus brefs délais.'
       });
     } catch (error) {
       console.error('Erreur envoi formulaire contact:', error);
-      res.status(500).json({ success: false, message: 'Erreur lors de l\'envoi du message' });
+      res.status(500).json({ success: false, message: "Erreur lors de l'envoi du message" });
     }
   });
 
@@ -1393,15 +1395,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Public contact form endpoint
-  app.post("/api/contact", async (req, res) => {
-    try {
-      const message = await storage.createContactMessage(req.body);
-      res.status(201).json(message);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to send message" });
-    }
-  });
 
   const httpServer = createServer(app);
   return httpServer;
